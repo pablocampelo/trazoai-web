@@ -1,0 +1,58 @@
+# dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# next / build
+.next/
+out/
+dist/
+build/
+
+# vercel
+.vercel/
+
+# logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# env
+.env
+.env.*
+!.env.example
+
+# coverage
+coverage/
+.nyc_output/
+*.lcov
+
+# caches
+.eslintcache
+*.tsbuildinfo
+.cache/
+.parcel-cache/
+.rpt2_cache/
+.rts2_cache_*/
+.turbo/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# editor
+.vscode/
+!.vscode/extensions.json
+.idea/
+
+# misc
+tmp/
+temp/
+*.tgz
+
+# supabase local
+.supabase/
