@@ -45,7 +45,7 @@ A minimal, modern **Next.js** web app concept for an AI tattoo generator: a publ
 pnpm install
 Run dev server
 bash
-Copiar código
+
 pnpm dev
 Open:
 
@@ -53,13 +53,13 @@ http://localhost:3000
 
 Quality checks (recommended before pushing)
 bash
-Copiar código
+
 pnpm run lint
 pnpm run test -- --run
 pnpm run build
 Production server (after build)
 bash
-Copiar código
+
 pnpm run build
 pnpm start
 Environment variables
@@ -70,7 +70,7 @@ NEXT_PUBLIC_SITE_URL (optional): absolute site URL used in some server fetches f
 Copy example:
 
 bash
-Copiar código
+
 cp .env.example .env
 If you later integrate a real auth provider / payments (Stripe), you’ll likely add additional env vars (server secrets). This repo currently keeps a demo-first approach.
 
