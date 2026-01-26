@@ -25,25 +25,47 @@ interface Tattoo {
   style: string;
 }
 
-export default function GalleryClient({ initialItems }: { initialItems: any[] }) {
-  const PAGE_SIZE = 8;
+/**
+ * Shape “raw” que devuelve /api/gallery/public
+ * (lo tipamos para no usar any)
+ */
+interface GalleryApiItem {
+  id: string;
+  url: string;
+  prompt: string;
+  user_id?: string | null;
+  created_at: string;
+  style: string;
+}
 
+interface GalleryApiResponse {
+  items: GalleryApiItem[];
+}
+
+function isGalleryApiResponse(value: unknown): value is GalleryApiResponse {
+  if (!value || typeof value !== 'object') return false;
+  const v = value as { items?: unknown };
+  if (!Array.isArray(v.items)) return false;
+  return true;
+}
+
+export default function GalleryClient({ initialItems }: { initialItems: GalleryApiItem[] }) {
   const [tattoos, setTattoos] = useState<Tattoo[]>([]);
   const [page, setPage] = useState(1);
   const [hasNextPage, setHasNextPage] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [filters, setFilters] = useState({ style: 'all', q: '' });
   const [selectedTattoo, setSelectedTattoo] = useState<Tattoo | null>(null);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
   const loaderRef = useRef<HTMLDivElement | null>(null);
   const modalCloseButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  const PAGE_SIZE = 8;
 
   // cache con todas las públicas (ya filtradas por style/q)
   const allFilteredRef = useRef<Tattoo[]>([]);
 
-  const mapItems = (items: any[]): Tattoo[] =>
-    (items ?? []).map((it: any) => ({
+  const mapItems = useCallback((items: GalleryApiItem[]): Tattoo[] => {
+    return (items ?? []).map((it) => ({
       id: it.id,
       imageUrl: it.url,
       description: it.prompt,
@@ -51,24 +73,26 @@ export default function GalleryClient({ initialItems }: { initialItems: any[] })
       createdAt: it.created_at,
       style: it.style,
     }));
+  }, []);
 
-  const applyClientFilters = (items: any[], style: string, q: string): Tattoo[] => {
-    const mapped = mapItems(items);
-    let result = mapped;
+  const applyClientFilters = useCallback(
+    (items: GalleryApiItem[], style: string, q: string): Tattoo[] => {
+      const mapped = mapItems(items);
 
-    if (style !== 'all') {
-      result = result.filter((x) => x.style === style);
-    }
-
-    if (q) {
-      const ql = q.toLowerCase();
-      result = result.filter(
-        (x) => x.description?.toLowerCase().includes(ql) || x.author?.toLowerCase().includes(ql),
-      );
-    }
-
-    return result;
-  };
+      let result = mapped;
+      if (style !== 'all') {
+        result = result.filter((x) => x.style === style);
+      }
+      if (q) {
+        const ql = q.toLowerCase();
+        result = result.filter(
+          (x) => x.description?.toLowerCase().includes(ql) || x.author?.toLowerCase().includes(ql),
+        );
+      }
+      return result;
+    },
+    [mapItems],
+  );
 
   const pageSlice = (arr: Tattoo[], pageNum: number, size = PAGE_SIZE) => {
     const start = (pageNum - 1) * size;
@@ -81,32 +105,21 @@ export default function GalleryClient({ initialItems }: { initialItems: any[] })
       setIsLoading(true);
 
       try {
+        // 1) traer públicas del backend para mantener la galería actualizada
         let filtered: Tattoo[];
-
         if (reset) {
-          setErrorMsg(null);
-
           const res = await fetch('/api/gallery/public', { cache: 'no-store' });
+          const raw = (await res.json().catch(() => null)) as unknown;
 
-          if (!res.ok) {
-            const txt = await res.text().catch(() => '');
-            console.error('Gallery public API failed:', res.status, txt);
-            setErrorMsg('No hemos podido cargar la galería. Inténtalo de nuevo.');
-            allFilteredRef.current = [];
-            setTattoos([]);
-            setPage(1);
-            setHasNextPage(false);
-            return;
-          }
+          const items: GalleryApiItem[] = isGalleryApiResponse(raw) ? raw.items : [];
 
-          const data = await res.json().catch(() => null);
-          filtered = applyClientFilters(data?.items ?? [], filters.style, filters.q);
+          filtered = applyClientFilters(items, filters.style, filters.q);
           allFilteredRef.current = filtered;
         } else {
           filtered = allFilteredRef.current;
         }
 
-        // paginar en cliente
+        // 2) paginar en cliente
         const currentPage = reset ? 1 : page;
         const items = pageSlice(filtered, currentPage, PAGE_SIZE);
         setTattoos((prev) => (reset ? items : [...prev, ...items]));
@@ -117,23 +130,21 @@ export default function GalleryClient({ initialItems }: { initialItems: any[] })
         if (more) setPage(currentPage + 1);
       } catch (e) {
         console.error('Failed to fetch tattoos:', e);
-        setErrorMsg('Ha ocurrido un error cargando la galería.');
       } finally {
         setIsLoading(false);
       }
     },
-    [isLoading, page, filters.style, filters.q],
+    [isLoading, page, filters.style, filters.q, applyClientFilters],
   );
 
-  // inicializar con SSR items (solo una vez)
+  // inicializar con SSR items
   useEffect(() => {
-    const filtered = applyClientFilters(initialItems, filters.style, filters.q);
+    const filtered = applyClientFilters(initialItems ?? [], filters.style, filters.q);
     allFilteredRef.current = filtered;
-
     const first = pageSlice(filtered, 1, PAGE_SIZE);
     setTattoos(first);
     setPage(2);
-    setHasNextPage(filtered.length > PAGE_SIZE);
+    setHasNextPage(first.length < filtered.length);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -143,14 +154,13 @@ export default function GalleryClient({ initialItems }: { initialItems: any[] })
     setPage(1);
     setHasNextPage(true);
     fetchTattoos(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.style, filters.q]);
+  }, [filters.style, filters.q, fetchTattoos]);
 
   // infinite scroll
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasNextPage && !isLoading) {
+        if (entries[0]?.isIntersecting && hasNextPage && !isLoading) {
           fetchTattoos();
         }
       },
@@ -159,7 +169,6 @@ export default function GalleryClient({ initialItems }: { initialItems: any[] })
 
     const el = loaderRef.current;
     if (el) observer.observe(el);
-
     return () => {
       if (el) observer.unobserve(el);
     };
@@ -181,7 +190,7 @@ export default function GalleryClient({ initialItems }: { initialItems: any[] })
     });
 
   return (
-    <div className="container mx-auto px-4 py-8 md:py-16">
+    <div className="container mx-auto py-8 px-4 md:py-16">
       {/* Page Header */}
       <div className="mb-12 flex flex-col items-center justify-center space-y-4 text-center">
         <Badge className="rounded-full px-4 py-1.5 text-sm font-medium" variant="secondary">
@@ -218,22 +227,6 @@ export default function GalleryClient({ initialItems }: { initialItems: any[] })
         </Select>
       </div>
 
-      {/* Error */}
-      {errorMsg && (
-        <div className="mb-6 rounded-xl border border-border/60 bg-card p-4 text-sm text-muted-foreground">
-          {errorMsg}
-        </div>
-      )}
-
-      {/* Empty */}
-      {!isLoading && tattoos.length === 0 && !errorMsg && (
-        <div className="mb-6 rounded-xl border border-border/60 bg-card p-8 text-center">
-          <p className="text-sm text-muted-foreground">
-            No hay diseños para estos filtros todavía.
-          </p>
-        </div>
-      )}
-
       {/* Grid */}
       <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
         {tattoos.map((tattoo) => (
@@ -253,10 +246,9 @@ export default function GalleryClient({ initialItems }: { initialItems: any[] })
                 className="aspect-square h-auto w-full object-cover"
                 loading="lazy"
               />
-              {/* Gradient overlay + style badge */}
               <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/60 to-transparent" />
               <div className="absolute bottom-3 left-3">
-                <span className="inline-flex items-center rounded-full bg-white/85 px-3 py-1 text-xs font-medium text-foreground backdrop-blur ring-1 ring-black/10 transition group-hover:bg-white dark:bg-black/60 dark:text-white dark:ring-white/10 dark:group-hover:bg-black/70">
+                <span className="inline-flex items-center rounded-full bg-white/85 dark:bg-black/60 px-3 py-1 text-xs font-medium text-foreground dark:text-white backdrop-blur ring-1 ring-black/10 dark:ring-white/10 transition group-hover:bg-white dark:group-hover:bg-black/70">
                   {getStyleLabel(tattoo.style)}
                 </span>
               </div>
@@ -289,7 +281,7 @@ export default function GalleryClient({ initialItems }: { initialItems: any[] })
       {/* Modal */}
       {selectedTattoo && (
         <FocusTrap focusTrapOptions={{ returnFocusOnDeactivate: true }}>
-          <div className="fixed inset-0 z-50 flex animate-in items-center justify-center p-4">
+          <div className="animate-in fixed inset-0 z-50 flex items-center justify-center p-4">
             <button
               type="button"
               className="absolute inset-0 bg-black/80"
