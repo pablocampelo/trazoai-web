@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+export const dynamic = 'force-dynamic';
+
 // Tip: para demo podemos permitir elegir plan via query (?plan=pro)
 // Así puedes enseñar el UI de pricing en distintos estados.
 const ALLOWED_PLANS = new Set(['free', 'pro', 'ultra']);

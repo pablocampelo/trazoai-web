@@ -17,8 +17,26 @@ const STYLE_TO_IMAGE: Record<string, string[]> = {
   ],
 };
 
-function normalizeColors(colors: any) {
-  // Mantiene tu lógica, pero simplificada
+type ColorMode = 'bw' | 'single' | 'full';
+type ColorsNormalized = { mode: ColorMode; hex: string | null };
+type ColorsInput =
+  | string
+  | {
+      mode?: string;
+      hex?: unknown;
+    }
+  | null
+  | undefined;
+
+type GenerateRequestBody = {
+  prompt?: unknown;
+  style?: unknown;
+  colors?: ColorsInput;
+  source?: unknown;
+};
+
+function normalizeColors(colors: ColorsInput): ColorsNormalized {
+  // Mantiene tu lógica, pero tipada
   if (typeof colors === 'string') {
     switch (colors) {
       case 'black-and-white':
@@ -33,26 +51,42 @@ function normalizeColors(colors: any) {
         return { mode: 'full', hex: null };
     }
   }
-  // Si ya viene como objeto, lo devolvemos tal cual
-  return colors ?? { mode: 'full', hex: null };
+
+  // Si viene como objeto, intentamos normalizar de forma segura
+  if (colors && typeof colors === 'object') {
+    const modeRaw = typeof colors.mode === 'string' ? colors.mode : 'full';
+    const mode: ColorMode =
+      modeRaw === 'bw' || modeRaw === 'black-and-white'
+        ? 'bw'
+        : modeRaw === 'single' || modeRaw === 'single-color'
+          ? 'single'
+          : 'full';
+
+    const hex = typeof colors.hex === 'string' ? colors.hex : null;
+    return { mode, hex };
+  }
+
+  return { mode: 'full', hex: null };
 }
 
 function pickImage(style: string) {
-  const key = style?.toLowerCase?.() ?? 'default';
+  const key = style.toLowerCase();
   const pool = STYLE_TO_IMAGE[key] ?? STYLE_TO_IMAGE.default;
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json().catch(() => ({}));
+    const body = (await req.json().catch(() => ({}))) as GenerateRequestBody;
 
     // Validación mínima
-    if (!body.prompt || typeof body.prompt !== 'string') {
+    const prompt = body.prompt;
+    if (typeof prompt !== 'string' || prompt.trim().length === 0) {
       return NextResponse.json({ error: 'Prompt es requerido y debe ser string' }, { status: 400 });
     }
 
-    if (!body.style || typeof body.style !== 'string') {
+    const style = body.style;
+    if (typeof style !== 'string' || style.trim().length === 0) {
       return NextResponse.json({ error: 'Style es requerido' }, { status: 400 });
     }
 
@@ -62,23 +96,21 @@ export async function POST(req: NextRequest) {
     // Simula latencia de IA
     await new Promise((r) => setTimeout(r, 650));
 
-    const url = pickImage(body.style);
+    const url = pickImage(style);
     const id = `demo_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
-    // Respuesta compatible con el frontend
+    // Respuesta compatible con el frontend (id + url)
+    // Meter metadata extra NO rompe al cliente si no la usa.
     return NextResponse.json({
       id,
       url,
-      // Si quieres, podemos incluir metadata extra sin romper
-      // prompt: body.prompt.trim(),
-      // style: body.style,
-      // colors: normalizedColors,
-      // public: body.source === "landing",
+      prompt: prompt.trim(),
+      style,
+      colors: normalizedColors,
+      source: typeof body.source === 'string' ? body.source : undefined,
     });
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e?.message || 'Error interno del servidor' },
-      { status: 500 },
-    );
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Error interno del servidor';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
