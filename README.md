@@ -133,5 +133,5 @@ MIT — see LICENSE.
 
 Author
 Pablo Campelo
-Frontend Engineer / Designer (portfolio-focused projects)
+Frontend Engineer / Designer
 ```
